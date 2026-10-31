@@ -1,0 +1,36 @@
+name: Publish portfolio and visits
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '3,13,23,33,43,53 * * * *'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency: portfolio-pages
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read current and published totals
+        id: visits
+        env:
+          TOKEN: ${{ secrets.GOATCOUNTER_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 2 \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            'https://anemic.goatcounter.com/api/v0/stats/total?start=2026-10-01T00:00:00Z' |
+            jq -ce 'select((.total | type) == "number") | {count:(.total - (.total_events // 0))} | select(.count >= 0)' > visits.json
+          old=$(curl -fsS --max-time 15 https://vei.lol/visits.json || true)
+          if [[ "$old" != "$(cat visits.json)" ]]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'schedule' || steps.visits.outputs.changed == 'true'
+        with:
+          path: .
+      - uses: actions/deploy-pages@v4
+        if: github.event_name != 'schedule' || steps.visits.outputs.changed == 'true'
